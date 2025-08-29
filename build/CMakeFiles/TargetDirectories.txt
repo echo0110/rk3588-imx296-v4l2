@@ -1,0 +1,7 @@
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/install/strip.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/install/local.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/install.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/list_install_components.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/rebuild_cache.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/edit_cache.dir
+/home/gensong/camara_code/GSCameraSDK-main/build/CMakeFiles/GSCamera.dir

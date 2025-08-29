@@ -1,0 +1,12 @@
+#ifndef GS_CAMERA_VERSION_H
+#define GS_CAMERA_VERSION_H
+
+// Major Release, Minor Version, Patch Version
+//
+#define GS_CAMERA_MAJOR_VERSION  0
+#define GS_CAMERA_MINOR_VERSION  0
+#define GS_CAMERA_PATCH_VERSION  1
+
+#define GS_CAMERA_VERSION ((GS_CAMERA_MAJOR_VERSION << 16) | (GS_CAMERA_MINOR_VERSION << 8) | GS_CAMERA_PATCH_VERSION)
+
+#endif
