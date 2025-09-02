@@ -15,6 +15,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror=return-type")
 
 message("start cmake.")
+
+# 找 OpenCV
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+
 if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
     message("this is aarch64 paltform.")
     include_directories(/usr/lib/aarch64-linux-gnu/glib-2.0/include)
@@ -30,6 +35,7 @@ elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
 else()
     message("used aarch64 system platform:${CMAKE_HOST_SYSTEM_PROCESSOR}")
     include_directories(/usr/lib/aarch64-linux-gnu/glib-2.0/include)
+    #include_directories(/usr/include/opencv4/)
     # 设置C编译器
     # set(CMAKE_C_COMPILER "aarch64-linux-gnu-gcc")
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include)
@@ -67,6 +73,7 @@ target_include_directories(${target_name}
 
 if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
     target_link_libraries(${target_name}
+    ${OpenCV_LIBS}
     -L${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib/
     gstreamer-1.0
     gobject-2.0
@@ -80,6 +87,7 @@ if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
     )
 else()
     target_link_libraries(${target_name}
+    ${OpenCV_LIBS}
     gstreamer-1.0
     gobject-2.0
     gmodule-2.0

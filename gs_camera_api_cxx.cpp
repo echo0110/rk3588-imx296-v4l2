@@ -12,35 +12,16 @@
 #include "gs_camera_api_cxx.h"
 #include "params/gs_camera_params.h"
 
-//// 全局函数
-//extern int set_stream(const char *i2c_name, int value);
-//// fps
-//extern float read_fps(const char *i2c_name);
-//extern int set_fps(const char *i2c_name, float fps);
-//// roi
-//extern int read_roi(const char *i2c_name, int type);
-//extern int set_roi(const char *i2c_name, int type, int value);
-//// exposure
-//extern int read_expmode(const char *i2c_name);
-//extern int set_expmode(const char *i2c_name, int value);
-//extern int read_exp_value(const char *i2c_name);
-//extern int set_exp_value(const char *i2c_name, int value);
-//// gain
-//extern int read_gainmode(const char *i2c_name);
-//extern int set_gainmode(const char *i2c_name, int value);
-//extern float read_gain_value(const char *i2c_name);
-//extern int set_gain_value(const char *i2c_name, float value);
-//// trigger
-//extern int read_outio1_mode(const char *i2c_name);
-//extern int set_outio1_mode(const char *i2c_name, int value);
-//extern int read_trigger_mode(const char *i2c_name);
-//extern int set_trigger_mode(const char *i2c_name, int value);
-//extern int read_trigger_src(const char *i2c_name);
-//extern int set_trigger_src(const char *i2c_name, int value);
-//extern int read_trigger_delay(const char *i2c_name);
-//extern int set_trigger_delay(const char *i2c_name, int value);
-//extern int read_trigger_num(const char *i2c_name);
-//extern int set_trigger_num(const char *i2c_name, int value);
+
+#include <iostream>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <linux/videodev2.h>
+#include <cstdlib>
+
+
 
 namespace Gensong
 {
@@ -48,68 +29,21 @@ namespace Gensong
 namespace GensongCameraAPI
 {
 
-GensongCamera::GensongCamera(const char *deviceName, int width, int height, int fps) :
-    _cameraName(deviceName), _width(width), _height(height), _fps(fps)
-{
+// GensongCamera::GensongCamera(const char *deviceName, int width, int height, int fps) :
+//     _cameraName(deviceName), _width(width), _height(height), _fps(fps)
+// {
 
-}
+// }
 
-GensongCamera::~GensongCamera()
-{
 
-}
-
+GensongCamera::GensongCamera(int width, int height, int fps)
+    : width_(width), height_(height), fps_(fps), fd_(-1), buffer_count_(0), streaming_(false) {}
 int GensongCamera::init() {
-    _frame_count                  = 0;
-    _last_calculate_fps_timestamp = 0;
-    _handle = (CameraHandle*)malloc(sizeof(CameraHandle));
-    _handle->pipeline   = NULL;
-    _handle->source     = NULL;
-    _handle->capsfilter = NULL;
-    _handle->appsink    = NULL;
-
-    int argc = 0;
-    char** argv = NULL; // 不需要命令行参数，传NULL
-    gst_init(&argc, &argv);
-
-    char v4l2_cmd[1024];
-    if(_cameraName == "/dev/video0" || _cameraName == "/dev/video1") {
-        _i2c_name = "/dev/i2c-7";
-        snprintf(v4l2_cmd, sizeof(v4l2_cmd),
-                 "sudo media-ctl -d /dev/media0 --set-v4l2 '\"m00_b_mvcam 7-003b\":0[fmt:Y8_1X8/%dx%d@1/%d field:none]'",_width, _height, _fps);
-
-    }
-    else if(_cameraName == "/dev/video8" || _cameraName == "/dev/video9") {
-        _i2c_name = "/dev/i2c-3";
-        snprintf(v4l2_cmd, sizeof(v4l2_cmd),
-                 "sudo media-ctl -d /dev/media1 --set-v4l2 '\"m01_f_mvcam 3-003b\":0[fmt:Y8_1X8/%dx%d@1/%d field:none]'",_width, _height, _fps);
-
-    }
-    printf("v4l2_cmd:%s\n",v4l2_cmd);
-    system(v4l2_cmd);
-
-    printf("GsCameraInit device name:%s, I2C port:%s\n", _cameraName.data(), _i2c_name.data());
-    // 创建和配置pipeline
-    char pipeline_str[1024];
-    snprintf(pipeline_str, sizeof(pipeline_str),
-             "v4l2src device=\"%s\" ! video/x-raw,format=GRAY8,width=%d,height=%d,framerate=%d/1 ! appsink name=image-sink "
-             "sync=false max-buffers=8 num-buffers=8 drop=true emit-signals=true",
-             _cameraName.data(), _width, _height, _fps);
-
-    _handle->pipeline = gst_parse_launch(pipeline_str, NULL);
-    if (!_handle->pipeline) {
-        printf("Failed to create pipeline\n");
-        free(_handle);
-        return -1;
-    }
-
-    _handle->source = gst_bin_get_by_name(GST_BIN(_handle->pipeline), "v4l2src");
-    _handle->appsink = gst_bin_get_by_name(GST_BIN(_handle->pipeline), "image-sink");
-
-    // 设置回调
-    //g_signal_connect(handle->appsink, "new-sample", G_CALLBACK(sampleCallback), NULL);
-
-    return 0;
+    std::string cmd = "media-ctl -d /dev/media0 --set-v4l2 '\"m00_b_mvcam 7-003b\":0[fmt:Y8_1X8/"
+        + std::to_string(width_) + "x" + std::to_string(height_) +
+        "@1/" + std::to_string(fps_) + " field:none]'";
+    int ret = system(cmd.c_str());
+    return (ret == 0) ? 0 : -1;
 }
 
 /**
@@ -119,34 +53,82 @@ int GensongCamera::init() {
  * @return
  */
 int GensongCamera::connect(int wait_play) {
-    if(_is_connected) {
-        printf("camera is already connect\n");
-        return GS_OK;
+    fd_ = open("/dev/video0", O_RDWR);
+    if (fd_ < 0) {
+        perror("Failed to open /dev/video0");
+        return -1;
     }
 
-    _frame_count                  = 0;
-    _last_calculate_fps_timestamp = 0;
+    struct v4l2_format fmt;
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = width_;
+    fmt.fmt.pix.height = height_;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_GREY;
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-    printf("start GsCameraConnect gst_element_set_state\n");
-    if (!gst_element_set_state(_handle->pipeline, GST_STATE_PLAYING)) {
-        printf("Failed to start pipeline\n");
-        return GS_FAILED;
+    if (ioctl(fd_, VIDIOC_S_FMT, &fmt) < 0) {
+        perror("VIDIOC_S_FMT");
+        close(fd_);
+        fd_ = -1;
+        return -1;
     }
 
-    if(1 == wait_play) {
-        // 等待pipeline状态变为PLAYING
-        printf("start GsCameraConnect gst_element_get_state\n");
-        GstStateChangeReturn ret = gst_element_get_state(_handle->pipeline, NULL, NULL, GST_CLOCK_TIME_NONE);
-        if (ret == GST_STATE_CHANGE_FAILURE) {
-            printf("Failed to change pipeline state to PLAYING\n");
-            return GS_FAILED;
+    struct v4l2_requestbuffers req;
+    req.count = 1;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+
+    if (ioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
+        perror("VIDIOC_REQBUFS");
+        close(fd_);
+        fd_ = -1;
+        return -1;
+    }
+
+    buffer_count_ = req.count;
+    buffer_starts_.resize(buffer_count_);
+    buffer_lengths_.resize(buffer_count_);
+
+    for (size_t i = 0; i < buffer_count_; i++) {
+        struct v4l2_buffer buf;
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+
+        if (ioctl(fd_, VIDIOC_QUERYBUF, &buf) < 0) {
+            perror("VIDIOC_QUERYBUF");
+            close(fd_);
+            fd_ = -1;
+            return -1;
+        }
+
+        buffer_lengths_[i] = buf.length;
+        buffer_starts_[i] = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, buf.m.offset);
+
+        if (buffer_starts_[i] == MAP_FAILED) {
+            perror("mmap");
+            close(fd_);
+            fd_ = -1;
+            return -1;
+        }
+
+        if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
+            perror("VIDIOC_QBUF");
+            close(fd_);
+            fd_ = -1;
+            return -1;
         }
     }
 
-    printf("GsCameraConnect end\n");
-    _is_connected = true;
-
-    return GS_OK;
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
+        perror("VIDIOC_STREAMON");
+        close(fd_);
+        fd_ = -1;
+        return -1;
+    }
+    streaming_ = true;
+    return 0;
 }
 
 /**
@@ -498,76 +480,28 @@ GS_STATUS GensongCamera::unRegistCallBackFunc() {
  * @param[out] output: 返回相机一帧图像数据
  * @return
  */
-GS_STATUS GensongCamera::getOneFrame(FrameInfo *output) {
-    if(_is_callback) {
-        printf("regist callback function outside, can't used GsGetOneFrame\n");
-        return GS_FAILED;
-    }
-    if(NULL == output) {
-        printf("GsGetOneFrame failed, output is null\n");
-        return GS_FAILED;
-    }
-    GstSample *sample = NULL;
-    GstBuffer *buffer = NULL;
-    GstMapInfo map;
-    GstClockTime timestamp;
+GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
+    if (!streaming_ || fd_ < 0) return GS_ERROR;
 
-    GstAppSink *appsink = GST_APP_SINK(_handle->appsink);
-    if (!GST_IS_APP_SINK(_handle->appsink)) {
-        g_warning("Sink element is not an appsink!");
+    struct v4l2_buffer buf;
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+
+    if (ioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
+        perror("VIDIOC_DQBUF");
+        return GS_NO_FRAME;
+    }
+
+    output->width = width_;
+    output->height = height_;
+    output->channel = 1;
+    output->data = (BYTE*)buffer_starts_[buf.index];
+    output->data_size = buffer_lengths_[buf.index];
+
+    if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
+        perror("VIDIOC_QBUF");
         return GS_ERROR;
     }
-    sample = gst_app_sink_pull_sample(appsink);
-    if (sample) {
-        buffer = gst_sample_get_buffer(sample);
-        GstCaps *caps = gst_sample_get_caps(sample);
-        GstVideoInfo info;
-        if (!gst_video_info_from_caps(&info, caps)) {
-            g_warning("Failed to get video info from caps");
-            gst_sample_unref(sample);
-            return GS_OK;
-        }
-
-        // 确保图像为GRAY8格式
-        if (GST_VIDEO_INFO_FORMAT(&info) != GST_VIDEO_FORMAT_GRAY8) {
-            g_warning("Unexpected format, expected GRAY8 but got %s", gst_video_format_to_string(GST_VIDEO_INFO_FORMAT(&info)));
-            gst_sample_unref(sample);
-            return GS_OK;
-        }
-
-        // 计算图像数据大小并映射缓冲区
-        gsize size = GST_VIDEO_INFO_SIZE(&info);
-        if (!gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-            g_warning("Failed to map buffer");
-            gst_sample_unref(sample);
-            return GS_ERROR;
-        }
-
-        output->data = (BYTE *)malloc(size);
-        if(NULL == output->data) {
-            printf("GsGetOneFrame failed, malloc data failed\n");
-            gst_buffer_unmap(buffer, &map);
-            gst_sample_unref(sample);
-            return GS_ERROR;
-        }
-        memcpy(output->data, map.data, size);
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        output->timestamp = tv.tv_sec * 1000 + tv.tv_usec / 1000; // 转换为毫秒
-        output->channel= 1;
-        output->height = GST_VIDEO_INFO_HEIGHT(&info);
-        output->width  = GST_VIDEO_INFO_WIDTH(&info);
-        // 解除映射
-        gst_buffer_unmap(buffer, &map);
-
-        calculateFps(timestamp); // 计算并输出帧率
-        gst_sample_unref(sample);
-    }
-    else {
-        printf(" gst_app_sink_pull_sample failed \n");
-        return GS_ERROR;
-    }
-
     return GS_OK;
 }
 
@@ -754,6 +688,16 @@ GstFlowReturn GensongCamera::sampleCallback(GstElement *sink, gpointer user_data
     }
 
     return GST_FLOW_OK;
+}
+GensongCamera::~GensongCamera() {
+    if (streaming_ && fd_ >= 0) {
+        enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        ioctl(fd_, VIDIOC_STREAMOFF, &type);
+        for (size_t i = 0; i < buffer_count_; i++) {
+            munmap(buffer_starts_[i], buffer_lengths_[i]);
+        }
+        close(fd_);
+    }
 }
 
 }

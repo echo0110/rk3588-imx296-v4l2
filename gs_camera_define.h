@@ -45,6 +45,7 @@ typedef enum GS_STATUS
 {
     GS_OK = 0,
     GS_FAILED = 1,
+    GS_NO_FRAME=2,
     /* custom success starts here */
     GS_SUCCESS_2 = 102,
     GS_SUCCESS_1 = 101,
@@ -80,11 +81,12 @@ typedef struct CameraHandle {
 
 // 相机输出的一帧图像数据
 typedef struct FrameInfo {
+    BYTE        *data;      // 图像数据
     unsigned int channel;   // 图像通道数
     unsigned int width;     // 图像宽
     unsigned int height;    // 图像高
+    size_t data_size;
     long long    timestamp; // 该帧图像的时间戳
-    BYTE        *data;      // 图像数据
 } FrameInfo;
 
 typedef void (*GS_FRAME_CALLBACK)(FrameInfo *, void *);

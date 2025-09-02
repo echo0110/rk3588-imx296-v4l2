@@ -3,7 +3,8 @@
 
 #include <iostream>
 #include "gs_camera_define.h"
-
+#include <vector>
+#include <opencv2/opencv.hpp>
 namespace Gensong
 {
 
@@ -15,7 +16,7 @@ namespace GensongCameraAPI
  */
 class GensongCamera {
 public:
-    GensongCamera(const char *deviceName, int width, int height, int fps);
+    GensongCamera(int width, int height, int fps);
     ~GensongCamera();
 
     int  init();
@@ -53,9 +54,14 @@ protected:
     static GstFlowReturn sampleCallback(GstElement *sink, gpointer user_data);
 
 private:
-    int           _width = 0;
-    int           _height = 0;
-    int           _fps = 0;
+    int width_;
+    int height_;
+    int fps_;
+    int fd_;
+    std::vector<void*> buffer_starts_;
+    std::vector<size_t> buffer_lengths_;
+    size_t buffer_count_;
+    bool streaming_;
     CameraHandle *_handle = nullptr;
     std::string  _cameraName  = "/dev/video0";
     std::string  _i2c_name    = "/dev/i2c-7";
