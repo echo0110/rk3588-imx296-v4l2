@@ -53,81 +53,99 @@ int GensongCamera::init() {
  * @return
  */
 int GensongCamera::connect(int wait_play) {
-    fd_ = open("/dev/video0", O_RDWR);
-    if (fd_ < 0) {
+     // Step 2: Open V4L2 device
+    int fd = open("/dev/video0", O_RDWR);
+    if (fd < 0) {
         perror("Failed to open /dev/video0");
         return -1;
     }
 
+    // Step 3: Set video format
     struct v4l2_format fmt;
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = width_;
-    fmt.fmt.pix.height = height_;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_GREY;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
-
-    if (ioctl(fd_, VIDIOC_S_FMT, &fmt) < 0) {
-        perror("VIDIOC_S_FMT");
-        close(fd_);
-        fd_ = -1;
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;  // 修改为 multiplanar 类型
+    // 获取当前格式
+    if (ioctl(fd, VIDIOC_G_FMT, &fmt) < 0) {
+        perror("VIDIOC_G_FMT");
+        close(fd);
         return -1;
     }
 
+     // 设置新的格式
+    fmt.fmt.pix_mp.width =  width_;
+    fmt.fmt.pix_mp.height = height_;
+    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_GREY;
+    fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
+    fmt.fmt.pix_mp.num_planes = 1;
+    
+    printf("Setting format: %dx%d\n", width_, height_);
+    if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
+        perror("VIDIOC_S_FMT");
+        close(fd);
+        return -1;
+    }
+    printf("func is %s,%d\n",__func__,__LINE__);
+    std::cout << "Real format: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
+
+    // Step 4: Request buffers
     struct v4l2_requestbuffers req;
+    memset(&req, 0, sizeof(req));
     req.count = 1;
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     req.memory = V4L2_MEMORY_MMAP;
 
-    if (ioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
+    if (ioctl(fd, VIDIOC_REQBUFS, &req) < 0) {
         perror("VIDIOC_REQBUFS");
-        close(fd_);
-        fd_ = -1;
+        close(fd);
         return -1;
     }
-
-    buffer_count_ = req.count;
-    buffer_starts_.resize(buffer_count_);
-    buffer_lengths_.resize(buffer_count_);
-
-    for (size_t i = 0; i < buffer_count_; i++) {
+    printf("func is %s,%d\n",__func__,__LINE__);
+    buffers.resize(req.count);
+    for (size_t i = 0; i < req.count; i++) {
         struct v4l2_buffer buf;
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        struct v4l2_plane planes[1];
+        memset(&buf, 0, sizeof(buf));
+        memset(&planes, 0, sizeof(planes));
+
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
         buf.memory = V4L2_MEMORY_MMAP;
         buf.index = i;
-
-        if (ioctl(fd_, VIDIOC_QUERYBUF, &buf) < 0) {
+        buf.m.planes = planes;
+        buf.length = 1;  // 平面数量
+        printf("func is %s,%d\n",__func__,__LINE__);
+        if (ioctl(fd, VIDIOC_QUERYBUF, &buf) < 0) {
             perror("VIDIOC_QUERYBUF");
-            close(fd_);
-            fd_ = -1;
+            close(fd);
             return -1;
         }
+        printf("func is %s,%d\n",__func__,__LINE__);
+        // 为每个平面分配内存
+        buffers[i].length[0] = buf.m.planes[0].length;
+        buffers[i].start[0] = mmap(NULL, buf.m.planes[0].length,
+                                 PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, fd,
+                                 buf.m.planes[0].m.mem_offset);
 
-        buffer_lengths_[i] = buf.length;
-        buffer_starts_[i] = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, buf.m.offset);
-
-        if (buffer_starts_[i] == MAP_FAILED) {
+        if (buffers[i].start == MAP_FAILED) {
             perror("mmap");
-            close(fd_);
-            fd_ = -1;
+            close(fd);
             return -1;
         }
 
-        if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
+        if (ioctl(fd, VIDIOC_QBUF, &buf) < 0) {
             perror("VIDIOC_QBUF");
-            close(fd_);
-            fd_ = -1;
+            close(fd);
             return -1;
         }
     }
 
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
+    // Step 5: Start streaming
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    if (ioctl(fd, VIDIOC_STREAMON, &type) < 0) {
         perror("VIDIOC_STREAMON");
-        close(fd_);
-        fd_ = -1;
+        close(fd);
         return -1;
     }
-    streaming_ = true;
     return 0;
 }
 
@@ -484,8 +502,14 @@ GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
     if (!streaming_ || fd_ < 0) return GS_ERROR;
 
     struct v4l2_buffer buf;
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    struct v4l2_plane planes[1];
+    memset(&buf, 0, sizeof(buf));
+    memset(planes, 0, sizeof(planes));
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     buf.memory = V4L2_MEMORY_MMAP;
+
+    buf.m.planes = planes;
+    buf.length = 1;
 
     if (ioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
         perror("VIDIOC_DQBUF");
@@ -495,7 +519,7 @@ GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
     output->width = width_;
     output->height = height_;
     output->channel = 1;
-    output->data = (BYTE*)buffer_starts_[buf.index];
+    output->data = (BYTE*)buffers[buf.index].start[0];
     output->data_size = buffer_lengths_[buf.index];
 
     if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {

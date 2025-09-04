@@ -28,7 +28,7 @@ if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include/gstreamer-1.0)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include/glib-2.0)
-    link_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib/)
+    #link_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib/)
 elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
     message("this is x86_64 paltform.")
     include_directories(/usr/lib/x86_64-linux-gnu/glib-2.0/include/)
@@ -41,7 +41,7 @@ else()
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include/gstreamer-1.0)
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/include/glib-2.0)
-    link_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib/)
+    #link_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lib/)
 endif()
 
 add_compile_options(-fPIC)
@@ -52,8 +52,6 @@ include_directories(/usr/include/glib-2.0/)
 file(GLOB_RECURSE src
     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
 )
 
 add_library(${target_name} SHARED "")

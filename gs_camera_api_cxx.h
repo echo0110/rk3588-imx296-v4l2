@@ -10,7 +10,10 @@ namespace Gensong
 
 namespace GensongCameraAPI
 {
-
+    struct Buffer {
+        void* start[VIDEO_MAX_PLANES];
+        size_t length[VIDEO_MAX_PLANES];
+    };
 /**
  * @brief The GensongCamera class
  */
@@ -58,6 +61,7 @@ private:
     int height_;
     int fps_;
     int fd_;
+    std::vector<Buffer> buffers;
     std::vector<void*> buffer_starts_;
     std::vector<size_t> buffer_lengths_;
     size_t buffer_count_;
