@@ -5,6 +5,7 @@
 #include "gs_camera_define.h"
 #include <vector>
 #include <opencv2/opencv.hpp>
+#include <linux/videodev2.h>
 namespace Gensong
 {
 
