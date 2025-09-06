@@ -29,13 +29,6 @@ namespace Gensong
 namespace GensongCameraAPI
 {
 
-// GensongCamera::GensongCamera(const char *deviceName, int width, int height, int fps) :
-//     _cameraName(deviceName), _width(width), _height(height), _fps(fps)
-// {
-
-// }
-
-
 GensongCamera::GensongCamera(int width, int height, int fps)
     : width_(width), height_(height), fps_(fps), fd_(-1), buffer_count_(0), streaming_(false) {}
 int GensongCamera::init() {
@@ -90,13 +83,14 @@ int GensongCamera::connect(int wait_play) {
     // Step 4: Request buffers
     struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof(req));
-    req.count = 1;
+    req.count = 4;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     req.memory = V4L2_MEMORY_MMAP;
 
     if (ioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
         perror("VIDIOC_REQBUFS");
         close(fd_);
+        streaming_ = false;
         return -1;
     }
     printf("func is %s,%d\n",__func__,__LINE__);
@@ -116,6 +110,7 @@ int GensongCamera::connect(int wait_play) {
         if (ioctl(fd_, VIDIOC_QUERYBUF, &buf) < 0) {
             perror("VIDIOC_QUERYBUF");
             close(fd_);
+            streaming_ = false;
             return -1;
         }
         printf("func is %s,%d\n",__func__,__LINE__);
@@ -126,15 +121,17 @@ int GensongCamera::connect(int wait_play) {
                                  MAP_SHARED, fd_,
                                  buf.m.planes[0].m.mem_offset);
 
-        if (buffers[i].start == MAP_FAILED) {
+        if (buffers[i].start[0] == MAP_FAILED) {
             perror("mmap");
             close(fd_);
+            streaming_ = false;
             return -1;
         }
 
         if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
             perror("VIDIOC_QBUF");
             close(fd_);
+            streaming_ = false;
             return -1;
         }
     }
@@ -144,8 +141,10 @@ int GensongCamera::connect(int wait_play) {
     if (ioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
         perror("VIDIOC_STREAMON");
         close(fd_);
+        streaming_ = false;
         return -1;
     }
+    streaming_ = true;
     return 0;
 }
 
@@ -154,16 +153,26 @@ int GensongCamera::connect(int wait_play) {
  *        disconnect from camera
  */
 void GensongCamera::disConnect() {
-    _is_connected                 = false;
-    _frame_count                  = 0;
-    _last_calculate_fps_timestamp = 0;
-    if(_handle) {
-        gst_element_set_state(_handle->pipeline, GST_STATE_NULL);
-        gst_object_unref(_handle->pipeline);
-        gst_object_unref(_handle->source);
-        gst_object_unref(_handle->appsink);
-        free(_handle);
+    if (fd_ >= 0) {
+        // 1. 停止视频流
+        enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+        ioctl(fd_, VIDIOC_STREAMOFF, &type);
+
+        // 2. 解除 mmap 映射
+        for (size_t i = 0; i < buffers.size(); ++i) {
+            if (buffers[i].start[0] && buffers[i].length[0] > 0) {
+                munmap(buffers[i].start[0], buffers[i].length[0]);
+                buffers[i].start[0] = nullptr;
+                buffers[i].length[0] = 0;
+            }
+        }
+        buffers.clear();
+
+        // 3. 关闭设备文件
+        close(fd_);
+        fd_ = -1;
     }
+    streaming_ = false;
 }
 
 /**
@@ -499,7 +508,7 @@ GS_STATUS GensongCamera::unRegistCallBackFunc() {
  * @return
  */
 GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
-    //if (fd_ < 0) return GS_ERROR;
+    if (!streaming_ || fd_ < 0) return GS_ERROR;
     printf("func is %s,%d\n",__func__,__LINE__);
     struct v4l2_buffer buf;
     struct v4l2_plane planes[1];
@@ -510,7 +519,7 @@ GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
     buf.memory = V4L2_MEMORY_MMAP;
     printf("func is %s,%d\n",__func__,__LINE__);
     buf.m.planes = planes;
-    buf.length = 1;
+    buf.length = 4;
     printf("func is %s,%d\n",__func__,__LINE__);
     if (ioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
         perror("VIDIOC_DQBUF");
