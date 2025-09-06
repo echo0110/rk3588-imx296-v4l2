@@ -54,8 +54,8 @@ int GensongCamera::init() {
  */
 int GensongCamera::connect(int wait_play) {
      // Step 2: Open V4L2 device
-    int fd = open("/dev/video0", O_RDWR);
-    if (fd < 0) {
+    fd_ = open("/dev/video0", O_RDWR);
+    if (fd_ < 0) {
         perror("Failed to open /dev/video0");
         return -1;
     }
@@ -65,9 +65,9 @@ int GensongCamera::connect(int wait_play) {
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;  // 修改为 multiplanar 类型
     // 获取当前格式
-    if (ioctl(fd, VIDIOC_G_FMT, &fmt) < 0) {
+    if (ioctl(fd_, VIDIOC_G_FMT, &fmt) < 0) {
         perror("VIDIOC_G_FMT");
-        close(fd);
+        close(fd_);
         return -1;
     }
 
@@ -79,9 +79,9 @@ int GensongCamera::connect(int wait_play) {
     fmt.fmt.pix_mp.num_planes = 1;
     
     printf("Setting format: %dx%d\n", width_, height_);
-    if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
+    if (ioctl(fd_, VIDIOC_S_FMT, &fmt) < 0) {
         perror("VIDIOC_S_FMT");
-        close(fd);
+        close(fd_);
         return -1;
     }
     printf("func is %s,%d\n",__func__,__LINE__);
@@ -94,9 +94,9 @@ int GensongCamera::connect(int wait_play) {
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     req.memory = V4L2_MEMORY_MMAP;
 
-    if (ioctl(fd, VIDIOC_REQBUFS, &req) < 0) {
+    if (ioctl(fd_, VIDIOC_REQBUFS, &req) < 0) {
         perror("VIDIOC_REQBUFS");
-        close(fd);
+        close(fd_);
         return -1;
     }
     printf("func is %s,%d\n",__func__,__LINE__);
@@ -113,9 +113,9 @@ int GensongCamera::connect(int wait_play) {
         buf.m.planes = planes;
         buf.length = 1;  // 平面数量
         printf("func is %s,%d\n",__func__,__LINE__);
-        if (ioctl(fd, VIDIOC_QUERYBUF, &buf) < 0) {
+        if (ioctl(fd_, VIDIOC_QUERYBUF, &buf) < 0) {
             perror("VIDIOC_QUERYBUF");
-            close(fd);
+            close(fd_);
             return -1;
         }
         printf("func is %s,%d\n",__func__,__LINE__);
@@ -123,27 +123,27 @@ int GensongCamera::connect(int wait_play) {
         buffers[i].length[0] = buf.m.planes[0].length;
         buffers[i].start[0] = mmap(NULL, buf.m.planes[0].length,
                                  PROT_READ | PROT_WRITE,
-                                 MAP_SHARED, fd,
+                                 MAP_SHARED, fd_,
                                  buf.m.planes[0].m.mem_offset);
 
         if (buffers[i].start == MAP_FAILED) {
             perror("mmap");
-            close(fd);
+            close(fd_);
             return -1;
         }
 
-        if (ioctl(fd, VIDIOC_QBUF, &buf) < 0) {
+        if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
             perror("VIDIOC_QBUF");
-            close(fd);
+            close(fd_);
             return -1;
         }
     }
 
     // Step 5: Start streaming
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    if (ioctl(fd, VIDIOC_STREAMON, &type) < 0) {
+    if (ioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
         perror("VIDIOC_STREAMON");
-        close(fd);
+        close(fd_);
         return -1;
     }
     return 0;
@@ -499,33 +499,45 @@ GS_STATUS GensongCamera::unRegistCallBackFunc() {
  * @return
  */
 GS_STATUS GensongCamera::getOneFrame(FrameInfo* output) {
-    if (!streaming_ || fd_ < 0) return GS_ERROR;
-
+    //if (fd_ < 0) return GS_ERROR;
+    printf("func is %s,%d\n",__func__,__LINE__);
     struct v4l2_buffer buf;
     struct v4l2_plane planes[1];
+    printf("func is %s,%d\n",__func__,__LINE__);
     memset(&buf, 0, sizeof(buf));
     memset(planes, 0, sizeof(planes));
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     buf.memory = V4L2_MEMORY_MMAP;
-
+    printf("func is %s,%d\n",__func__,__LINE__);
     buf.m.planes = planes;
     buf.length = 1;
-
+    printf("func is %s,%d\n",__func__,__LINE__);
     if (ioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
         perror("VIDIOC_DQBUF");
         return GS_NO_FRAME;
     }
-
+    printf("func is %s,%d\n",__func__,__LINE__);
     output->width = width_;
     output->height = height_;
     output->channel = 1;
-    output->data = (BYTE*)buffers[buf.index].start[0];
-    output->data_size = buffer_lengths_[buf.index];
+    // output->data = (BYTE*)buffers[buf.index].start[0];
+    // output->data_size = buffer_lengths_[buf.index];
+    output->data_size = buffers[buf.index].length[0];
+    output->data = (BYTE*)malloc(output->data_size);
+    if (output->data && buffers[buf.index].start[0]) {
+        memcpy(output->data, buffers[buf.index].start[0], output->data_size);
+    } else {
+        output->data_size = 0;
+    }
+
+    printf("func is %s,%d\n",__func__,__LINE__);
+
 
     if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
         perror("VIDIOC_QBUF");
         return GS_ERROR;
     }
+    printf("func is %s,%d\n",__func__,__LINE__);
     return GS_OK;
 }
 
